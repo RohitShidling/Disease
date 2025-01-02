@@ -48,13 +48,23 @@ def create_model(num_classes):
 
 # Load models dynamically
 def load_combined_models(filepath):
-    combined_models = torch.load(filepath, map_location='cuda' if torch.cuda.is_available() else 'cpu')
+    # Use weights_only=True to avoid the security warning
+    combined_models = torch.load(filepath, map_location='cuda' if torch.cuda.is_available() else 'cpu', weights_only=True)
     models_per_plant = {}
+    
     for plant, state_dict in combined_models.items():
-        num_classes = len(state_dict["classifier.1.bias"])
+        # Check structure of state_dict, if necessary
+        print(f"Loading model for plant: {plant}")
+        print(state_dict.keys())  # Debugging output
+        
+        # Assuming the model has 'classifier.1.bias' for the number of classes
+        # If this doesn't work, adjust based on your model's state_dict structure
+        num_classes = len(state_dict["classifier.1.bias"])  # Adjust this based on your model
+        
         model = create_model(num_classes)
         model.load_state_dict(state_dict)
         model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
+        
         models_per_plant[plant] = model
     return models_per_plant
 
@@ -124,6 +134,4 @@ def predict():
         return jsonify(result)
 
 if __name__ == '__main__':
-    app.run()
-
-
+    app.run(debug=True)
