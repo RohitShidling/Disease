@@ -2,15 +2,21 @@ import torch
 import torch.nn as nn
 from flask import Flask, request, render_template, jsonify
 import os
-from PIL import Image
-from torchvision import transforms, models
+from PIL import Image, UnidentifiedImageError
+from torchvision import transforms
+from werkzeug.utils import secure_filename
+import logging
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Flask app setup
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Model and disease data
 plant_classes = {
     "corn": ["Blight", "Common_Rust", "Gray_Leaf_Spot", "Healthy"],
     "rice": ["Bacterial leaf blight", "Brown spot", "Leaf smut"],
@@ -37,26 +43,31 @@ preventions = {
     "Healthy": "No action needed."
 }
 
+# Load model
 def load_combined_models(filepath):
+    logging.info("Loading combined model...")
     return torch.jit.load(filepath)
 
 combined_model_path = "combined_models.ptl"
 combined_model = load_combined_models(combined_model_path)
 
+# Prediction function
 def predict_disease_combined(img_path):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
+    
     img = Image.open(img_path).convert('RGB')
     img_tensor = transform(img).unsqueeze(0).to('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Run prediction
     outputs = combined_model(img_tensor)
-    
-    if isinstance(outputs, tuple):
-        # Multiple outputs (one per plant type)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    if isinstance(outputs, (tuple, list)):
         best_prediction = None
         for idx, plant_output in enumerate(outputs):
             confidence, predicted_class = torch.max(torch.softmax(plant_output, dim=1), dim=1)
@@ -69,7 +80,6 @@ def predict_disease_combined(img_path):
                     "confidence": confidence
                 }
     else:
-        # Single output
         confidence, predicted_class = torch.max(torch.softmax(outputs, dim=1), dim=1)
         plant = list(plant_classes.keys())[0]
         best_prediction = {
@@ -90,6 +100,7 @@ def predict_disease_combined(img_path):
         "Prevention": prevention
     }
 
+# Routes
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -104,17 +115,24 @@ def predict():
         return jsonify({"Error": "No selected file"})
     
     if file:
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
         try:
             result = predict_disease_combined(filepath)
             return jsonify(result)
+        except UnidentifiedImageError:
+            logging.error("Invalid image file.")
+            return jsonify({"Error": "Uploaded file is not a valid image."})
         except Exception as e:
-            return jsonify({"Error": str(e)})
+            logging.error(f"Error during prediction: {str(e)}")
+            return jsonify({"Error": "An internal error occurred."})
         finally:
             if os.path.exists(filepath):
                 os.remove(filepath)
 
+# Main entry point
 if __name__ == '__main__':
-    app.run()
+    port = int(os.environ.get("PORT", 5000))  # For server hosting
+    app.run(host="0.0.0.0", port=port)
