@@ -69,7 +69,7 @@ def load_combined_models(filepath):
     return models_per_plant
 
 # Load combined models once
-combined_model_path = "combined_models.ptl"
+combined_model_path = "combined_models.pth"
 models_per_plant = load_combined_models(combined_model_path)
 
 # Prediction function
@@ -134,4 +134,4 @@ def predict():
         return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
