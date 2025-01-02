@@ -69,7 +69,7 @@ def load_combined_models(filepath):
     return models_per_plant
 
 # Load combined models once
-combined_model_path = "combined_models.pth"
+combined_model_path = "combined_models.ptl"
 models_per_plant = load_combined_models(combined_model_path)
 
 # Prediction function
