@@ -1,18 +1,16 @@
+import torch
+import torch.nn as nn
 from flask import Flask, request, render_template, jsonify
 import os
-import torch
 from PIL import Image
 from torchvision import transforms, models
-import torch.nn as nn
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Ensure the upload folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Define the plant classes and prevention measures
 plant_classes = {
     "corn": ["Blight", "Common_Rust", "Gray_Leaf_Spot", "Healthy"],
     "rice": ["Bacterial leaf blight", "Brown spot", "Leaf smut"],
@@ -39,40 +37,12 @@ preventions = {
     "Healthy": "No action needed."
 }
 
-# Function to create a model
-def create_model(num_classes):
-    model = models.efficientnet_b0(pretrained=False)
-    in_features = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(in_features, num_classes)
-    return model
-
-# Load models dynamically
 def load_combined_models(filepath):
-    # Use weights_only=True to avoid the security warning
-    combined_models = torch.load(filepath, map_location='cuda' if torch.cuda.is_available() else 'cpu', weights_only=True)
-    models_per_plant = {}
-    
-    for plant, state_dict in combined_models.items():
-        # Check structure of state_dict, if necessary
-        print(f"Loading model for plant: {plant}")
-        print(state_dict.keys())  # Debugging output
-        
-        # Assuming the model has 'classifier.1.bias' for the number of classes
-        # If this doesn't work, adjust based on your model's state_dict structure
-        num_classes = len(state_dict["classifier.1.bias"])  # Adjust this based on your model
-        
-        model = create_model(num_classes)
-        model.load_state_dict(state_dict)
-        model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        models_per_plant[plant] = model
-    return models_per_plant
+    return torch.jit.load(filepath)
 
-# Load combined models once
-combined_model_path = "combined_models.pth"
-models_per_plant = load_combined_models(combined_model_path)
+combined_model_path = "combined_models.ptl"
+combined_model = load_combined_models(combined_model_path)
 
-# Prediction function
 def predict_disease_combined(img_path):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -81,35 +51,44 @@ def predict_disease_combined(img_path):
     ])
     img = Image.open(img_path).convert('RGB')
     img_tensor = transform(img).unsqueeze(0).to('cuda' if torch.cuda.is_available() else 'cpu')
-    best_prediction = None
-
-    for plant, model in models_per_plant.items():
-        model.eval()
-        with torch.no_grad():
-            outputs = model(img_tensor)
-            _, predicted_class_index = torch.max(outputs, 1)
-            confidence = torch.softmax(outputs, dim=1)[0][predicted_class_index].item()
-
+    
+    # Run prediction
+    outputs = combined_model(img_tensor)
+    
+    if isinstance(outputs, tuple):
+        # Multiple outputs (one per plant type)
+        best_prediction = None
+        for idx, plant_output in enumerate(outputs):
+            confidence, predicted_class = torch.max(torch.softmax(plant_output, dim=1), dim=1)
+            confidence = confidence.item()
             if not best_prediction or confidence > best_prediction["confidence"]:
+                plant = list(plant_classes.keys())[idx]
                 best_prediction = {
                     "plant": plant,
-                    "class_index": predicted_class_index.item(),
+                    "class_index": predicted_class.item(),
                     "confidence": confidence
                 }
-    
-    if best_prediction:
-        plant = best_prediction["plant"]
-        class_index = best_prediction["class_index"]
-        predicted_class = plant_classes[plant][class_index]
-        prevention = preventions.get(predicted_class, "No specific prevention available.")
-        return {
-            "Plant": plant.capitalize(),
-            "Disease": predicted_class,
-            "Confidence": round(best_prediction["confidence"], 4),
-            "Prevention": prevention
-        }
     else:
-        return {"Error": "No prediction available."}
+        # Single output
+        confidence, predicted_class = torch.max(torch.softmax(outputs, dim=1), dim=1)
+        plant = list(plant_classes.keys())[0]
+        best_prediction = {
+            "plant": plant,
+            "class_index": predicted_class.item(),
+            "confidence": confidence.item()
+        }
+
+    plant = best_prediction["plant"]
+    class_index = best_prediction["class_index"]
+    predicted_class = plant_classes[plant][class_index]
+    prevention = preventions.get(predicted_class, "No specific prevention available.")
+    
+    return {
+        "Plant": plant.capitalize(),
+        "Disease": predicted_class,
+        "Confidence": round(best_prediction["confidence"], 4),
+        "Prevention": prevention
+    }
 
 @app.route('/')
 def index():
@@ -128,10 +107,14 @@ def predict():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(filepath)
         
-        result = predict_disease_combined(filepath)
-        os.remove(filepath)  # Optional: Remove file after processing
-        
-        return jsonify(result)
+        try:
+            result = predict_disease_combined(filepath)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"Error": str(e)})
+        finally:
+            if os.path.exists(filepath):
+                os.remove(filepath)
 
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)
