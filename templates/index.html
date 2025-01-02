@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plant Disease Classifier</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #eafbf0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      background-color: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      padding: 2rem;
+      width: 90%;
+      max-width: 400px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 1.8rem;
+      color: #1b5e20;
+      margin-bottom: 1rem;
+    }
+    #image-preview {
+      width: 160px;
+      height: 160px;
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      margin: 1rem auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f9f9f9;
+      position: relative;
+      overflow: hidden;
+    }
+    #image-preview img {
+      max-width: 100%;
+      max-height: 100%;
+      display: none;
+    }
+    #image-preview .placeholder {
+      font-size: 2rem;
+      color: #ccc;
+    }
+    .buttons {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 1rem;
+      gap: 10px;
+    }
+    button, label {
+      padding: 0.8rem 1.2rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      flex: 1;
+    }
+    button {
+      background-color: #3b82f6;
+      color: white;
+    }
+    label {
+      background-color: #9333ea;
+      color: white;
+      text-align: center;
+    }
+    .predict {
+      width: 100%;
+      background-color: #34d399;
+      color: white;
+      margin-top: 1rem;
+    }
+    .predict[disabled] {
+      background-color: #9ca3af;
+      cursor: not-allowed;
+    }
+    .progress-container {
+      display: none;
+      margin-top: 1rem;
+      width: 100%;
+      background-color: #e5e5e5;
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-bar {
+      width: 0;
+      height: 12px;
+      background-color: #34d399;
+      transition: width 0.3s ease-in-out;
+    }
+    .progress-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 0.8rem;
+      font-weight: bold;
+      color: #333;
+    }
+    .result {
+      display: none;
+      margin-top: 1.5rem;
+      text-align: left;
+      padding: 1rem;
+      background-color: #f9f9f9;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+    }
+    .result p {
+      margin: 0.5rem 0;
+    }
+    .result p span {
+      font-weight: bold;
+    }
+    @media (max-width: 768px) {
+      .container {
+        width: 95%;
+        padding: 1.5rem;
+      }
+      h1 {
+        font-size: 1.5rem;
+      }
+      #image-preview {
+        width: 120px;
+        height: 120px;
+      }
+      .buttons {
+        flex-direction: column;
+        gap: 10px;
+      }
+      button, label {
+        font-size: 0.9rem;
+        padding: 0.6rem 1rem;
+      }
+      .predict {
+        font-size: 1rem;
+      }
+    }
+
+    @media (min-width: 1200px) {
+      .container {
+        max-width: 500px;
+        padding: 2.5rem;
+      }
+      h1 {
+        font-size: 2rem;
+      }
+      button, label {
+        font-size: 1.1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Plant Disease Classifier</h1>
+    <div id="image-preview">
+      <div class="placeholder"><i class="fas fa-leaf"></i></div>
+      <img id="preview-img" alt="Image Preview">
+    </div>
+    <div class="buttons">
+      <label for="image-input"><i class="fas fa-upload"></i> Upload Image</label>
+      <input type="file" id="image-input" accept="image/*" style="display: none;">
+      <button class="take-photo"><i class="fas fa-camera"></i> Take Photo</button>
+    </div>
+    <button id="predict-button" class="predict" disabled>Predict</button>
+    <div class="progress-container">
+      <div class="progress-bar"></div>
+      <div class="progress-text">0%</div>
+    </div>
+    <div class="result">
+      <p><span>Plant:</span> <span id="plant-name"></span></p>
+      <p><span>Disease:</span> <span id="disease-name"></span></p>
+      <p><span>Confidence:</span> <span id="confidence-level"></span></p>
+      <p><span>Prevention:</span> <span id="prevention-tips"></span></p>
+    </div>
+  </div>
+  <script>
+    const imageInput = document.getElementById('image-input');
+    const imagePreview = document.getElementById('preview-img');
+    const placeholder = document.querySelector('#image-preview .placeholder');
+    const predictButton = document.getElementById('predict-button');
+    const progressBar = document.querySelector('.progress-bar');
+    const progressText = document.querySelector('.progress-text');
+    const progressContainer = document.querySelector('.progress-container');
+    const resultContainer = document.querySelector('.result');
+    const plantName = document.getElementById('plant-name');
+    const diseaseName = document.getElementById('disease-name');
+    const confidenceLevel = document.getElementById('confidence-level');
+    const preventionTips = document.getElementById('prevention-tips');
+
+    let selectedFile = null;
+
+    imageInput.addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          imagePreview.src = e.target.result;
+          imagePreview.style.display = 'block';
+          placeholder.style.display = 'none';
+          predictButton.disabled = false;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    predictButton.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '0%';
+      progressText.textContent = '0%';
+
+      const formData = new FormData();
+      formData.append('image', selectedFile);
+
+      try {
+        const response = await fetch('/predict', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          progressBar.style.width = '100%';
+          progressText.textContent = '100%';
+
+          plantName.textContent = result.Plant || 'Unknown';
+          diseaseName.textContent = result.Disease || 'Unknown';
+          confidenceLevel.textContent = `${result.Confidence || 0}%`;
+          preventionTips.textContent = result.Prevention || 'No tips available';
+
+          resultContainer.style.display = 'block';
+        } else {
+          alert(result.error || 'An error occurred');
+        }
+      } catch (error) {
+        alert('Failed to connect to the server.');
+      } finally {
+        progressContainer.style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>
